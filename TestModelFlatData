@@ -1,0 +1,131 @@
+# libraries
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+import pickle
+import statsmodels.api as sm  
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import classification_report
+import model_factory as mf
+
+#read test data into df
+
+df = pd.read_csv('TestData.csv', low_memory=False).replace(np.nan, 0)
+mll = df[[ 'FATFIRM_FEI_NUMBER',
+    'HighRisk',
+    'seasonPROB',
+    'prod_prob',
+ 'authorizer_flagPROB',
+ 'DUNS_MATCH_CONF_PROB',
+ 'locationPROB',
+ 'FFR_STATUS_DESC_TEXTPROB',
+ 'FATFIRM_WORKLOAD_OBL_CODEPROB',
+ 'FATFIRM_EST_SIZE_CODEPROB',
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSNPROB',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSNPROB',
+ 'FATEST_IND_EST_TYPE_CODEPROB',
+            'STATE_CODEPROB',
+        'FATEST_IND_IND_CODEPROB' 
+
+]]
+mll['FEI_Count'] = 1
+dff = mll.groupby("FATFIRM_FEI_NUMBER").sum() 
+dfff = dff.div(dff['FEI_Count'], axis=0)
+
+ml = dfff[[
+        'HighRisk',
+    'seasonPROB',
+    'prod_prob',
+ 'authorizer_flagPROB',
+ 'DUNS_MATCH_CONF_PROB',
+ 'locationPROB',
+ 'FFR_STATUS_DESC_TEXTPROB',
+ 'FATFIRM_WORKLOAD_OBL_CODEPROB',
+ 'FATFIRM_EST_SIZE_CODEPROB',
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSNPROB',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSNPROB',
+ 'FATEST_IND_EST_TYPE_CODEPROB',
+    'STATE_CODEPROB',
+        'FATEST_IND_IND_CODEPROB' 
+]]
+
+ml = ml.assign(HighRisk=(ml.HighRisk != 0).astype(int))
+
+ml.shape
+Xcols = [
+    'seasonPROB',
+    'prod_prob',
+ 'authorizer_flagPROB',
+ 'DUNS_MATCH_CONF_PROB',
+ 'locationPROB',
+ 'FFR_STATUS_DESC_TEXTPROB',
+ 'FATFIRM_WORKLOAD_OBL_CODEPROB',
+ 'FATFIRM_EST_SIZE_CODEPROB',
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSNPROB',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSNPROB',
+ 'FATEST_IND_EST_TYPE_CODEPROB',
+    'STATE_CODEPROB',
+        'FATEST_IND_IND_CODEPROB' 
+]
+
+ycol = ['HighRisk']
+
+def splitXy(Xcols, ycol):
+    #df = getData(file)
+    X = ml.iloc[:, 1:]
+    X = X.values
+    X = pd.DataFrame(X, columns=Xcols)
+    y = ml.iloc[:, 0]
+    y = y.values
+    y = pd.DataFrame(y, columns=ycol)
+    return X, y
+
+X, y = splitXy(Xcols, ycol)
+
+pickled_models = [
+    'DecisionTreeClassifier()MR_model_HR.sav',
+    'MLPClassifier()MR_model_HR.sav',
+    'KNeighborsClassifier()MR_model_HR.sav',
+    'GaussianNB()MR_model_HR.sav',
+    'QuadraticDiscriminantAnalysis()MR_model_HR.sav',
+                 ]
+
+
+
+def testModel(model, data):
+    y_pred = model.predict(data)
+    return y_pred
+
+def evalModel(name, test, pred):
+    model_name = name
+    score = accuracy_score(test, pred)
+    cm = confusion_matrix(test, pred)
+    return model_name, round(score, 3) * 100, cm
+
+final_model_results = []
+
+for p in pickled_models:
+    final_model = pickle.load(open(p, 'rb'))
+    final_pred = testModel(final_model, X)
+    preds = pd.DataFrame(final_pred)
+    ycols = ['Pred']
+    xdf = pd.DataFrame(X, columns=Xcols) 
+    pp = pd.DataFrame(preds, columns=ycols)
+    frames = [y, preds]
+    f_pred = pd.concat(frames, axis = 1)
+    final_results = evalModel(final_model, y, final_pred)
+    prob = final_model.predict_proba(X)[:, 1]
+    pcol = ['prob']
+    # fcol = ['FATFIRM_FEI_NUMBER']
+    # fei = dff['FATFIRM_FEI_NUMBER']
+    # f = pd.DataFrame(fei, columns=fcol)
+    p = pd.DataFrame(prob, columns=pcol)
+    pX = X.reset_index(drop=True)
+    frames2 = [pX, p, f_pred]
+    x = pd.concat(frames2, axis=1)
+    x.to_csv('hr_final_prob{}.csv'.format(final_model), index=False)
+    print(final_results)
+
+    
