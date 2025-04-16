@@ -1,0 +1,242 @@
+# libraries
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+import pickle
+import statsmodels.api as sm  
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import classification_report
+import model_factory as mf
+
+# model overfit is a legit concern 
+# distribution of firms with high-risk and previous inspections 
+# order and split FEIs - do we have enough FEIs
+# check the file is joined correctly 
+# reduce the dataset back down to distinct FEIs -- because tp could be inflated due to dimension expassion 
+
+
+#Start here 
+# read test data file from FATCreateMLModels
+
+ml = pd.read_csv('2df_s2_222.csv', low_memory=False).replace(np.nan, 0)
+
+ml.drop_duplicates(inplace=True)
+# ml.columns.to_list()
+ml1 = ml[[  'FATFIRM_HR1_TEXT',
+ 'FATFIRM_HR2_TEXT',
+ 'FATFIRM_HR3_TEXT',
+ 'FATFIRM_HR4_TEXT',
+ 'FATFIRM_HR5_TEXT',
+ 'FATFIRM_HR6_TEXT',
+ 'PROD_NUM',
+ 'season_description_true',
+ 'season_description_num',
+ # 'reg_deactivation_reason_num',
+ 'authorizer_flag_num',
+ #'previous_owner_flag_num',
+ # 'prev_cancelled_regnbr',
+ # 'product_cfr_reference_num',
+ 'FATFIRM_HOME_DIST_ID_CODE',
+ 'FATFIRM_DUNS_MATCH_CONF_CODE',
+ 'FATFIRM_STATE_NUM',
+ 'FATFIRM_DOWNGRADED_DATE_TRUE',
+ 'FATFIRM_WORKLOAD_OBL_NUM',
+ 'FATEST_IND_EST_TYPE_NUM',
+ 'FATEST_IND_IND_CODE',         
+ 'FATFIRM_EST_SIZE_NUM',
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSN_NUM',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSN_NUM'
+ ]]
+
+# ml1.to_csv('TESTInspectionOutcomes_HR_split1.csv', index=False)
+ml1 = ml1.assign(HighRisk1=(ml.FATFIRM_HR4_TEXT == 1).astype(int)|
+               #(ml.FATFIRM_HR1_TEXT == 1).astype(int)|
+               (ml.FATFIRM_HR2_TEXT == 1).astype(int)
+               |(ml.FATFIRM_HR3_TEXT == 1).astype(int)
+                 |(ml.FATFIRM_HR5_TEXT == 1).astype(int)
+             |(ml.FATFIRM_HR6_TEXT == 1).astype(int))
+
+# ml1 = ml1.assign(HighRisk2=(ml.FATFIRM_HR4_TEXT == 1).astype(int)|(ml.FATFIRM_HR3_TEXT == 1).astype(int)
+#               # |(ml.FATFIRM_HR1_TEXT == 1).astype(int)
+#                |(ml.FATFIRM_HR6_TEXT == 1).astype(int)
+#                |(ml.FATFIRM_HR2_TEXT == 1).astype(int)
+#               )
+
+#start here | must match exactly to FATCreateMLModels
+
+ml1 = ml1[['HighRisk1',
+ 'PROD_NUM',
+'FATFIRM_HR1_TEXT',
+ # 'season_description_true',
+ #'retry_remaining',
+ 'season_description_num',
+ #'reg_deactivation_reason_num',
+ 'authorizer_flag_num',
+ #'previous_owner_flag_num',
+ #'product_cfr_reference_num',
+ 'FATFIRM_HOME_DIST_ID_CODE',
+ 'FATFIRM_DUNS_MATCH_CONF_CODE',
+ 'FATFIRM_STATE_NUM',
+ # 'FATFIRM_DOWNGRADED_DATE_TRUE',
+ #'FATFIRM_WORKLOAD_OBL_NUM',
+ 'FATEST_IND_EST_TYPE_NUM',
+ 'FATFIRM_EST_SIZE_NUM',
+ 'FATEST_IND_IND_CODE',
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSN_NUM',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSN_NUM'
+          ]]
+
+ml1.head()
+Xcols = [
+ 'PROD_NUM',
+    'FATFIRM_HR1_TEXT',
+ 'season_description_num',
+ # 'season_description_true',
+ 'authorizer_flag_num',
+ 'FATFIRM_HOME_DIST_ID_CODE',
+ 'FATFIRM_DUNS_MATCH_CONF_CODE',
+ 'FATFIRM_STATE_NUM',
+ 'FATEST_IND_IND_CODE',
+ 'FATEST_IND_EST_TYPE_NUM',
+ 'FATFIRM_EST_SIZE_NUM',
+ # 'FATFIRM_DOWNGRADED_DATE_TRUE'
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSN_NUM',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSN_NUM'
+]
+
+ycol = ['HighRisk1']
+
+def splitXy(Xcols, ycol):
+    #df = getData(file)
+    X = ml1.iloc[:, 1:]
+    X = X.values
+    X = pd.DataFrame(X, columns=Xcols)
+    y = ml1.iloc[:, 0]
+    y = y.values
+    y = pd.DataFrame(y, columns=ycol)
+    return X, y
+
+
+X, y = splitXy(Xcols, ycol)
+# from sklearn.feature_selection import chi2
+# scores, pvalues = chi2(X, y)
+# print(pvalues)
+# print(scores.round(2))
+
+# pd.options.display.float_format = '{:.5f}'.format
+
+# xdf = pd.DataFrame(X, columns=Xcols)
+# print(xdf.columns)
+# xd = pd.DataFrame(zip(xdf.columns, np.transpose(pvalues), np.transpose(scores.round(6))), columns=['features', 'p-values', 'scores'])
+# xd_sorted = xd.sort_values(by='scores', ascending=False)
+# xd_sorted
+#ml.FATFIRM_DOWNGRADED_DATE_TRUE.unique()
+pickled_models = [
+    'downgradedTDecisionTreeClassifier()MR_model_HR.sav',
+    'downgradedTMLPClassifier()MR_model_HR.sav',
+    'downgradedTKNeighborsClassifier()MR_model_HR.sav',
+    'downgradedTGaussianNB()MR_model_HR.sav',
+    'downgradedTQuadraticDiscriminantAnalysis()MR_model_HR.sav',
+    'downgradedTLogisticRegression()MR_model_HR.sav'
+                 ]
+
+def testModel(model, data):
+    y_pred = model.predict(data)
+    return y_pred
+
+def evalModel(name, test, pred):
+    model_name = name
+    score = accuracy_score(test, pred)
+    cm = confusion_matrix(test, pred)
+    return model_name, round(score, 3) * 100, cm
+
+final_model_results = []
+ml_FEI = ml['FATFIRM_FEI_NUMBER'].reset_index(drop=True)
+pred_col = ['pred']
+fcols = ['FATFIRM_FEI_NUMBER']
+
+
+for p in pickled_models:
+    final_model = pickle.load(open(p, 'rb'))
+    final_pred = testModel(final_model, X)
+    preds = pd.DataFrame(final_pred, columns=pred_col)
+    xdf = pd.DataFrame(X, columns=Xcols) 
+    propensity_scores = final_model.predict_proba(X)[:, 1]
+    pcol = ['propensity']
+    p = pd.DataFrame(propensity_scores, columns=pcol)
+    f = pd.DataFrame(ml_FEI, columns=fcols)
+    # py_test = y_test.reset_index(drop=True)
+    frames = [f, y, xdf, preds, p]
+    x = pd.concat(frames, axis=1)
+    x.to_csv('HR1propensity_scores{}.csv'.format(final_model), index=False)
+    final_results = evalModel(final_model, y, final_pred)
+    print(final_results)
+    
+#deduplicate the FEIs
+
+def de_dup(name):
+    df = pd.read_csv('HR1propensity_scores{}.csv'.format(name))
+    df['FEI_Count'] = 1
+    new = df.groupby("FATFIRM_FEI_NUMBER").sum() 
+    dfff = new.div(new['FEI_Count'], axis=0)
+    dfff.to_csv('HR1dd{}.csv'.format(name))
+    return new
+
+def get_stats(name):
+    df = de_dup(final_model)
+    df = df.assign(TruePositive=(df.HighRisk1 != 0).astype(int) & (df.pred != 0).astype(int))
+    df = df.assign(FalseNegative=(df.HighRisk1 != 0).astype(int) & (df.pred == 0).astype(int))
+    df = df.assign(FalsePositive=(df.HighRisk1 == 0).astype(int) & (df.pred != 0).astype(int))
+    df = df.assign(TrueNegative=(df.HighRisk1 == 0).astype(int) & (df.pred == 0).astype(int))
+    TP = df.groupby('TruePositive')['FEI_Count'].count()
+    FN = df.groupby('FalseNegative')['FEI_Count'].count()
+    FP = df.groupby('FalsePositive')['FEI_Count'].count()
+    TN = df.groupby('TrueNegative')['FEI_Count'].count()
+    print(TP, FN, FP, TN)
+    return df
+
+
+for p in pickled_models:
+    final_model = pickle.load(open(p, 'rb'))
+    de_dup(final_model)
+    print(final_model)
+    s = get_stats(final_model)
+
+# # Get feature importances
+# from sklearn.feature_selection import mutual_info_classif
+
+# m_name = mf.get_model(name)
+# model = createModel(m_name)
+
+# pd.options.display.float_format = '{:.5f}'.format
+
+# feat_importance = model.tree_.compute_feature_importances(normalize=False)
+# c = pd.DataFrame(zip(X.columns, feat_importance), columns=['features', 'importance'])
+# cc = c.sort_values(by='importance', ascending=False)
+# cc
+
+
+    # df = df.assign(TruePositive=(df.HighRisk1 == 1).astype(int) & (df.pred == 1).astype(int))
+    # df = df.assign(FalseNegative=(df.HighRisk1 == 1).astype(int) & (df.pred == 0).astype(int))
+    # df = df.assign(FalsePositive=(df.HighRisk0 == 1).astype(int) & (df.pred == 1).astype(int))
+    # df = df.assign(TrueNegative=(df.HighRisk1 == 0).astype(int) & (df.pred == 0).astype(int))
+
+
+# # Calculate the points on the lift curve
+# import kds
+
+# df = pd.read_csv('HR1ddGaussianNB().csv')
+# y_true = df['HighRisk1']
+# y_prob = df['prob']
+
+# y_pred, y_true
+
+# kds.metrics.plot_cumulative_gain(y_true, y_prob)
+# plt.show()
+
+
+# # LIFT PLOT
+# kds.metrics.plot_lift(y_true, y_prob)
+# plt.show()
