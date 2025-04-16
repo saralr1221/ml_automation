@@ -1,0 +1,292 @@
+# libraries
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+import pickle
+import statsmodels.api as sm  
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import classification_report
+import model_factory as mf
+
+products = pd.read_csv('FFRMdata.csv', low_memory=False).replace(np.nan, 0)
+# products['season_description_num'] = pd.factorize(products['season_description'])[0] +1
+products['season_description_num'] = pd.factorize(products['season_description'])[0] +1
+products = products.assign(season_description_true=(products.season_description_num != 0).astype(int))
+ft1 = pd.read_excel('FATFIRM ML Sara 090324.xlsx').replace(np.nan, 0)
+# ft1["location"] = ft1["FATFIRM_STATE_CODE"] + ft1["FATFIRM_HOME_DIST_ID_CODE"].astype(str)
+# ft1.columns.to_list()
+
+# split the data into test&training split and unknown data split 
+from sklearn.model_selection import train_test_split
+df_split1_, df_split2_ = train_test_split(ft1, test_size=0.3, random_state=42)
+df_split1_.FATFIRM_FEI_NUMBER.nunique(), df_split2_.FATFIRM_FEI_NUMBER.nunique()
+file2 = 'FATESTABLISHMENT_INDUSTRY ML Sara 090324.xlsx'
+ft2 = pd.read_excel(file2).replace(np.nan, 0)
+# df1_1m = pd.merge(ft1, ft2,on='FATFIRM_FEI_NUMBER', how='left').replace(np.nan, 0)
+df1_1m = pd.merge(df_split1_, ft2,on='FATFIRM_FEI_NUMBER', how='left').replace(np.nan, 0)
+df1_2m = pd.merge(df_split2_, ft2,on='FATFIRM_FEI_NUMBER', how='left').replace(np.nan, 0)
+df_s1 = pd.merge(df1_1m, products, how='left', left_on=['FATFIRM_FEI_NUMBER'], right_on=['facility_fei_number']).replace(np.nan, 0)
+df_s2 = pd.merge(df1_2m, products, how='left', left_on=['FATFIRM_FEI_NUMBER'], right_on=['facility_fei_number']).replace(np.nan, 0)
+# df_s1.FATFIRM_FEI_NUMBER.nunique()
+df_s1.to_csv('sf1.csv')
+df_s2.to_csv('sf2.csv')
+df = pd.read_csv('sf1.csv', low_memory=False).replace(np.nan, 0)
+
+df = df.assign(HighRisk=
+               (df.FATFIRM_HR4_TEXT == 1).astype(int)|
+               (df.FATFIRM_HR2_TEXT == 1).astype(int)
+              |(df.FATFIRM_HR3_TEXT == 1).astype(int)
+              |(df.FATFIRM_HR5_TEXT == 1).astype(int)
+             |(df.FATFIRM_HR6_TEXT == 1).astype(int)
+         #   |(df.FATFIRM_HR1_TEXT == 1).astype(int)
+              )
+
+
+df.FATFIRM_FEI_NUMBER.nunique()
+df.groupby('HighRisk')['FATFIRM_FEI_NUMBER'].nunique()
+# df.plot(df['prodname'].unique(), df['HighRisk1'].sum(), kind='bar')
+
+# # Group by 'Category' and sum 'Value'
+# grouped_df = df.groupby('prodind')['HighRisk1'].sum().sort_values(ascending=False)
+
+# # Plot the result
+# grouped_df.plot(kind='bar')
+# plt.title('Sum of Value by Category')
+# plt.xlabel('prodind')
+# plt.ylabel('Sum of Value')
+# plt.show()
+
+# # Group by 'Category' and sum 'Value'
+# grouped_df1 = filtered_df.groupby('FATEST_IND_EST_TYPE_CODE')['FATFIRM_FEI_NUMBER'].nunique().sort_values(ascending=False)
+
+# # Plot the result
+# grouped_df1.plot(kind='bar')
+# plt.title('Sum of Value by Category')
+# plt.xlabel('metric')
+# plt.ylabel('Sum of Value')
+# plt.show()
+filtered_df = df[df['HighRisk'] == 1]
+
+# Group by 'Category' and sum 'Value'
+grouped_df = filtered_df.groupby('prodname')['FATFIRM_FEI_NUMBER'].nunique()
+
+# grouped_df = df.groupby('prodname')['HighRisk1'].sum().sort_values(ascending=False)
+grouped_df2 = (grouped_df / 67411)
+
+df1 = df.merge(grouped_df2.rename('prod_prob'), left_on='prodname', right_on='prodname')
+# df1
+#calculate probs
+
+grouped_season = filtered_df.groupby('season_description_true')['FATFIRM_FEI_NUMBER'].nunique()
+grouped_authorizer_flag = filtered_df.groupby('authorizer_flag')['FATFIRM_FEI_NUMBER'].nunique()
+grouped_FATFIRM_DUNS_MATCH_CONF_CODE = filtered_df.groupby('FATFIRM_DUNS_MATCH_CONF_CODE')['FATFIRM_FEI_NUMBER'].nunique()
+groupedlocation = filtered_df.groupby('FATFIRM_HOME_DIST_ID_CODE')['FATFIRM_FEI_NUMBER'].nunique()
+grouped_FATFIRM_STATE_CODE = filtered_df.groupby('FATFIRM_STATE_CODE')['FATFIRM_FEI_NUMBER'].nunique()
+grouped_FATFIRM_FFR_STATUS_DESC_TEXT = filtered_df.groupby('FATFIRM_FFR_STATUS_DESC_TEXT')['FATFIRM_FEI_NUMBER'].nunique()
+grouped_FATFIRM_WORKLOAD_OBL_CODE = filtered_df.groupby('FATFIRM_WORKLOAD_OBL_CODE')['FATFIRM_FEI_NUMBER'].nunique()
+grouped_FATFIRM_EST_SIZE_CODE = filtered_df.groupby('FATFIRM_EST_SIZE_CODE')['FATFIRM_FEI_NUMBER'].nunique()
+grouped_FATFIRM_LST_FSMA_HFF_WRST_DCSN = filtered_df.groupby('FATFIRM_LST_FSMA_HFF_WRST_DCSN')['FATFIRM_FEI_NUMBER'].nunique()
+grouped_FATFIRM_PR_FSMA_HFF_WRST_DCSN = filtered_df.groupby('FATFIRM_PR_FSMA_HFF_WRST_DCSN')['FATFIRM_FEI_NUMBER'].nunique()
+grouped_FATEST_IND_IND_CODE = filtered_df.groupby('FATEST_IND_IND_CODE')['FATFIRM_FEI_NUMBER'].nunique()
+grouped_FATEST_IND_EST_TYPE_CODE = filtered_df.groupby('FATEST_IND_EST_TYPE_CODE')['FATFIRM_FEI_NUMBER'].nunique()
+authorizerflag = (grouped_authorizer_flag / 573471)
+FATFIRM_DUNS_MATCH_CONF_CODE = (grouped_FATFIRM_DUNS_MATCH_CONF_CODE / 573471)
+grouped_location = (groupedlocation / 573471)
+gFATFIRM_STATE_CODE = (grouped_FATFIRM_STATE_CODE / 573471)
+FFR_STATUS_DESC_TEXT = (grouped_FATFIRM_FFR_STATUS_DESC_TEXT / 573471)
+FATFIRM_WORKLOAD_OBL_CODE = (grouped_FATFIRM_WORKLOAD_OBL_CODE / 573471)
+FATFIRM_EST_SIZE_CODE = (grouped_FATFIRM_EST_SIZE_CODE / 573471)
+FATFIRM_LST_FSMA_HFF_WRST_DCSN = (grouped_FATFIRM_LST_FSMA_HFF_WRST_DCSN / 573471)
+FATFIRM_PR_FSMA_HFF_WRST_DCSN = (grouped_FATFIRM_PR_FSMA_HFF_WRST_DCSN / 573471)
+FATEST_IND_IND_CODE = (grouped_FATEST_IND_IND_CODE / 573471)
+FATEST_IND_EST_TYPE_CODE = (grouped_FATEST_IND_EST_TYPE_CODE / 573471)
+season = (grouped_season / 573471)
+df.shape
+df2 = df1.merge(authorizerflag.rename('authorizer_flagPROB'), left_on='authorizer_flag', right_on='authorizer_flag')
+df3 = df2.merge(FATFIRM_DUNS_MATCH_CONF_CODE.rename('DUNS_MATCH_CONF_PROB'), left_on='FATFIRM_DUNS_MATCH_CONF_CODE', right_on='FATFIRM_DUNS_MATCH_CONF_CODE')
+df4 = df3.merge(grouped_location.rename('locationPROB'), left_on='FATFIRM_HOME_DIST_ID_CODE', right_on='FATFIRM_HOME_DIST_ID_CODE')
+df5 = df4.merge(FFR_STATUS_DESC_TEXT.rename('FFR_STATUS_DESC_TEXTPROB'), left_on='FATFIRM_FFR_STATUS_DESC_TEXT', right_on='FATFIRM_FFR_STATUS_DESC_TEXT')
+df6 = df5.merge(FATFIRM_WORKLOAD_OBL_CODE.rename('FATFIRM_WORKLOAD_OBL_CODEPROB'), left_on='FATFIRM_WORKLOAD_OBL_CODE', right_on='FATFIRM_WORKLOAD_OBL_CODE')
+df7 = df6.merge(FATFIRM_EST_SIZE_CODE.rename('FATFIRM_EST_SIZE_CODEPROB'), left_on='FATFIRM_EST_SIZE_CODE', right_on='FATFIRM_EST_SIZE_CODE')
+df8 = df7.merge(FATFIRM_LST_FSMA_HFF_WRST_DCSN.rename('FATFIRM_LST_FSMA_HFF_WRST_DCSNPROB'), left_on='FATFIRM_LST_FSMA_HFF_WRST_DCSN', right_on='FATFIRM_LST_FSMA_HFF_WRST_DCSN')
+df9 = df8.merge(FATFIRM_PR_FSMA_HFF_WRST_DCSN.rename('FATFIRM_PR_FSMA_HFF_WRST_DCSNPROB'), left_on='FATFIRM_PR_FSMA_HFF_WRST_DCSN', right_on='FATFIRM_PR_FSMA_HFF_WRST_DCSN')
+df10 = df9.merge(FATEST_IND_EST_TYPE_CODE.rename('FATEST_IND_EST_TYPE_CODEPROB'), left_on='FATEST_IND_EST_TYPE_CODE', right_on='FATEST_IND_EST_TYPE_CODE')
+df11 = df10.merge(season.rename('seasonPROB'), left_on='season_description_true', right_on='season_description_true')
+df12 = df11.merge(gFATFIRM_STATE_CODE.rename('STATE_CODEPROB'), left_on='FATFIRM_STATE_CODE', right_on='FATFIRM_STATE_CODE')
+df13 = df12.merge(FATEST_IND_IND_CODE.rename('FATEST_IND_IND_CODEPROB'), left_on='FATEST_IND_IND_CODE', right_on='FATEST_IND_IND_CODE')
+#encode 2nd dataframe for testing data
+dff1 = dff0.merge(grouped_df2.rename('prod_prob'), left_on='prodname', right_on='prodname')
+dff2 = dff1.merge(authorizerflag.rename('authorizer_flagPROB'), left_on='authorizer_flag', right_on='authorizer_flag')
+dff3 = dff2.merge(FATFIRM_DUNS_MATCH_CONF_CODE.rename('DUNS_MATCH_CONF_PROB'), left_on='FATFIRM_DUNS_MATCH_CONF_CODE', right_on='FATFIRM_DUNS_MATCH_CONF_CODE')
+dff4 = dff3.merge(grouped_location.rename('locationPROB'), left_on='FATFIRM_HOME_DIST_ID_CODE', right_on='FATFIRM_HOME_DIST_ID_CODE')
+dff5 = dff4.merge(FFR_STATUS_DESC_TEXT.rename('FFR_STATUS_DESC_TEXTPROB'), left_on='FATFIRM_FFR_STATUS_DESC_TEXT', right_on='FATFIRM_FFR_STATUS_DESC_TEXT')
+dff6 = dff5.merge(FATFIRM_WORKLOAD_OBL_CODE.rename('FATFIRM_WORKLOAD_OBL_CODEPROB'), left_on='FATFIRM_WORKLOAD_OBL_CODE', right_on='FATFIRM_WORKLOAD_OBL_CODE')
+dff7 = dff6.merge(FATFIRM_EST_SIZE_CODE.rename('FATFIRM_EST_SIZE_CODEPROB'), left_on='FATFIRM_EST_SIZE_CODE', right_on='FATFIRM_EST_SIZE_CODE')
+dff8 = dff7.merge(FATFIRM_LST_FSMA_HFF_WRST_DCSN.rename('FATFIRM_LST_FSMA_HFF_WRST_DCSNPROB'), left_on='FATFIRM_LST_FSMA_HFF_WRST_DCSN', right_on='FATFIRM_LST_FSMA_HFF_WRST_DCSN')
+dff9 = dff8.merge(FATFIRM_PR_FSMA_HFF_WRST_DCSN.rename('FATFIRM_PR_FSMA_HFF_WRST_DCSNPROB'), left_on='FATFIRM_PR_FSMA_HFF_WRST_DCSN', right_on='FATFIRM_PR_FSMA_HFF_WRST_DCSN')
+dff10 = dff9.merge(FATEST_IND_EST_TYPE_CODE.rename('FATEST_IND_EST_TYPE_CODEPROB'), left_on='FATEST_IND_EST_TYPE_CODE', right_on='FATEST_IND_EST_TYPE_CODE')
+dff11 = dff10.merge(season.rename('seasonPROB'), left_on='season_description_true', right_on='season_description_true')
+dff12 = dff11.merge(gFATFIRM_STATE_CODE.rename('STATE_CODEPROB'), left_on='FATFIRM_STATE_CODE', right_on='FATFIRM_STATE_CODE')
+dff13 = dff12.merge(FATEST_IND_IND_CODE.rename('FATEST_IND_IND_CODEPROB'), left_on='FATEST_IND_IND_CODE', right_on='FATEST_IND_IND_CODE')
+dff13.to_csv('TestData.csv')
+#sdftest.shape, sdftraintest.shape
+
+dff13.shape, df13.shape
+# df13 = pd.read_csv('Test&TrainData.csv', low_memory=False)
+
+mll = df13[[ 
+ 'FATFIRM_FEI_NUMBER',
+ 'HighRisk',
+ 'seasonPROB',
+ 'prod_prob',
+ 'authorizer_flagPROB',
+ 'DUNS_MATCH_CONF_PROB',
+ 'locationPROB',
+ 'FFR_STATUS_DESC_TEXTPROB',
+ 'FATFIRM_WORKLOAD_OBL_CODEPROB',
+ 'FATFIRM_EST_SIZE_CODEPROB',
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSNPROB',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSNPROB',
+ 'FATEST_IND_EST_TYPE_CODEPROB',
+ 'STATE_CODEPROB',
+ 'FATEST_IND_IND_CODEPROB'            
+]]
+
+mll['FEI_Count'] = 1
+dff = mll.groupby("FATFIRM_FEI_NUMBER").sum() 
+dfff = dff.div(dff['FEI_Count'], axis=0)
+
+ml = dfff[[
+        'HighRisk',
+    'seasonPROB',
+    'prod_prob',
+ 'authorizer_flagPROB',
+ 'DUNS_MATCH_CONF_PROB',
+ 'locationPROB',
+ 'FFR_STATUS_DESC_TEXTPROB',
+ 'FATFIRM_WORKLOAD_OBL_CODEPROB',
+ 'FATFIRM_EST_SIZE_CODEPROB',
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSNPROB',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSNPROB',
+ 'FATEST_IND_EST_TYPE_CODEPROB',
+    'STATE_CODEPROB',
+        'FATEST_IND_IND_CODEPROB'  
+]]
+
+ml = ml.assign(HighRisk=(ml.HighRisk != 0).astype(int))
+ml.HighRisk.unique()
+ml.shape 
+Xcols = [
+    'seasonPROB',
+    'prod_prob',
+ 'authorizer_flagPROB',
+ 'DUNS_MATCH_CONF_PROB',
+ 'locationPROB',
+ 'FFR_STATUS_DESC_TEXTPROB',
+ 'FATFIRM_WORKLOAD_OBL_CODEPROB',
+ 'FATFIRM_EST_SIZE_CODEPROB',
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSNPROB',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSNPROB',
+ 'FATEST_IND_EST_TYPE_CODEPROB',
+    'STATE_CODEPROB',
+        'FATEST_IND_IND_CODEPROB'  
+]
+
+ycol = ['HighRisk']
+
+def splitXy(Xcols, ycol):
+    #df = getData(file)
+    X = ml.iloc[:, 1:]
+    X = X.values
+    X = pd.DataFrame(X, columns=Xcols)
+    y = ml.iloc[:, 0]
+    y = y.values
+    y = pd.DataFrame(y, columns=ycol)
+    return X, y
+
+
+#create test and train with nonscaled variables
+from sklearn.model_selection import train_test_split
+X, y = splitXy(Xcols, ycol)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.3, random_state = 0)
+pickled_models = []
+
+def createModel(func):
+    model = func.fit(X_train, y_train.values.ravel())
+    filename = '{}MR_model_HR.sav'.format(func)
+    pickle.dump(model, open(filename, 'wb'))
+    pickled_models.append(filename)
+    print(filename)
+    return model
+
+def testModel(model, data):
+    y_pred = model.predict(data)
+    return y_pred
+
+def evalModel(name, test, pred):
+    model_name = name
+    score = accuracy_score(test, pred)
+    cm = confusion_matrix(test, pred)
+    #tn, fp, fn, tp = confusion_matrix(test, pred, labels=[0, 1]).ravel()
+    return model_name, round(score, 3) * 100, cm
+
+model_results = []
+pr_col = ['pred']
+
+for name in mf.MODEL_NAMES:
+    m_name = mf.get_model(name)
+    model = createModel(m_name)
+    y_ = testModel(model, X_test)
+    preds = pd.DataFrame(y_, columns=pr_col)
+    results = evalModel(name, y_test, y_)
+    propensity_scores = model.predict_proba(X_test)[:, 1]
+    pcol = ['propensity']
+    p = pd.DataFrame(propensity_scores, columns=pcol)
+    pX_test = X_test.reset_index(drop=True)
+    py_test = y_test.reset_index(drop=True)
+    py_test, pX_test
+    frames = [pX_test, py_test, p]
+    x = pd.concat(frames, axis=1)
+    x.to_csv('HRpropensity_scores{}.csv'.format(model), index=False)
+    print(results)
+    model_results.append(results)
+    
+from sklearn.svm import SVC
+MODEL_NAME = ['SCV']
+   
+svc = []
+
+def createModel(func):
+    func = SVC()
+    model = func.fit(X_train, y_train.values.ravel())
+    filename = '{}MR_model_HR.sav'.format(func)
+    pickle.dump(model, open(filename, 'wb'))
+    svc.append(filename)
+    print(filename)
+    return model
+
+def testModel(model, data):
+    y_pred = model.predict(data)
+    return y_pred
+
+def evalModel(name, test, pred):
+    model_name = name
+    score = accuracy_score(test, pred)
+    cm = confusion_matrix(test, pred)
+    #tn, fp, fn, tp = confusion_matrix(test, pred, labels=[0, 1]).ravel()
+    return model_name, round(score, 3) * 100, cm
+
+model_result = []
+pr_col = ['pred']
+
+for name in MODEL_NAME:
+    m_name = mf.get_model(name)
+    model = createModel(m_name)
+    y_ = testModel(model, X_test)
+    preds = pd.DataFrame(y_, columns=pr_col)
+    results = evalModel(name, y_test, y_)
+    print(results)
+    model_result.append(results)
+    
