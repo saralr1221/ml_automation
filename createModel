@@ -1,0 +1,365 @@
+# libraries
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+import pickle
+import statsmodels.api as sm  
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import classification_report
+import model_factory as mf
+from sklearn.preprocessing import MinMaxScaler
+from imblearn.pipeline import Pipeline
+from imblearn.over_sampling import SMOTE
+
+#read in the FFRM product data and encode stat sig variables
+
+prod_file = 'FFRMdata.csv'
+
+def getData(prod_file):
+    df = pd.read_csv(prod_file, low_memory=False).replace(np.nan, 0)
+    df['PROD_NUM'] = pd.factorize(df['prodname'])[0] +1 
+    df['season_description_num'] = pd.factorize(df['season_description'])[0] +1
+    df['authorizer_flag_num'] = pd.factorize(df['authorizer_flag'])[0] +1
+    return df
+
+prod = getData(prod_file)
+#prod.columns.to_list()
+ft1 = pd.read_excel('FATFIRM ML Sara 090324.xlsx').replace(np.nan, 0)
+# ft1.columns.to_list()
+# check the number of firms
+ft1.FATFIRM_FEI_NUMBER.nunique()
+# split the data into test&training split and final test data split, more data is needed for testing & training since
+#it has to be split again
+
+from sklearn.model_selection import train_test_split
+df_split1_, df_split2_ = train_test_split(ft1, test_size=0.2, random_state=42)
+# df_split1_.columns.to_list()
+#check ratio of unique FEIs
+df_split1_.FATFIRM_FEI_NUMBER.nunique(), df_split2_.FATFIRM_FEI_NUMBER.nunique()
+#encode FAT data
+
+def getData(file):
+    # df = pd.read_excel(file).replace(np.nan, 0)
+    df = pd.read_csv(file, low_memory=False).replace(np.nan, 0)
+    df['FATFIRM_STATE_NUM'] = pd.factorize(df['FATFIRM_STATE_CODE'])[0] +1  
+    df['FATFIRM_OP_STATUS_NUM'] = pd.factorize(df['FATFIRM_OP_STATUS_CODE'])[0] +1
+    df['FATFIRM_DOWNGRADED_DATE_TRUE'] = df[['FATFIRM_DOWNGRADED_DATE']].notna().astype(int)
+    df['FATFIRM_FFR_STATUS_NUM'] = pd.factorize(df['FATFIRM_FFR_STATUS_DESC_TEXT'])[0] +1
+    df['FATFIRM_WORKLOAD_OBL_NUM'] = pd.factorize(df['FATFIRM_WORKLOAD_OBL_CODE'])[0] +1
+    df['FATFIRM_EST_SIZE_NUM'] = df.FATFIRM_EST_SIZE_CODE.replace('U', 99)
+    df = df.assign(FATFIRM_LST_FSMA_HFF_WRST_DCSN_NUM=(df.FATFIRM_LST_FSMA_HFF_WRST_DCSN == 'NAI').astype(int))
+    df = df.assign(FATFIRM_PR_FSMA_HFF_WRST_DCSN_NUM=(df.FATFIRM_PR_FSMA_HFF_WRST_DCSN == 'NAI').astype(int))
+    return df
+
+file1 = '1111.csv'
+file2 = '2222.csv'
+
+dfSplit1m = getData(file1)
+dfSplit2m = getData(file2)
+
+#file to get the correct ind & est types
+file2 = 'FATESTABLISHMENT_INDUSTRY ML Sara 090324.xlsx'
+
+def getData(file2):
+    DF = pd.read_excel(file2).replace(np.nan, 0)
+    DF = DF[[ 'FATFIRM_FEI_NUMBER',
+     'FATEST_IND_EST_TYPE_CODE',
+    'FATEST_IND_IND_CODE']]
+    DF['FATEST_IND_EST_TYPE_NUM'] = pd.factorize(DF['FATEST_IND_EST_TYPE_CODE'])[0] +1  
+    return DF
+
+df2 = getData(file2)
+
+#df2.columns.to_list()
+#join FAT data 
+
+df1_1m = pd.merge(dfSplit1m, df2,on='FATFIRM_FEI_NUMBER', how='inner').replace(np.nan, 0)
+df1_2m = pd.merge(dfSplit2m, df2,on='FATFIRM_FEI_NUMBER', how='inner').replace(np.nan, 0)
+df1_1m.shape, df1_2m.shape
+#encode season description as true/false 
+df_s1 = pd.merge(df1_1m, prod, how='left', left_on=['FATFIRM_FEI_NUMBER'], right_on=['facility_fei_number']).replace(np.nan, 0)
+df_s1 = df_s1.assign(season_description_true=(df_s1.season_description_num != 0).astype(int))
+df_s1.FATFIRM_DOWNGRADED_DATE_TRUE.unique()
+#encode season description as true/false 
+df_s2 = pd.merge(df1_2m, prod, how='left', left_on=['FATFIRM_FEI_NUMBER'], right_on=['facility_fei_number']).replace(np.nan, 0)
+df_s2 = df_s2.assign(season_description_true=(df_s2.season_description_num != 0).astype(int))
+df_s1.drop_duplicates(inplace=True)
+df_s2.drop_duplicates(inplace=True)
+
+#check point - save data 
+df_s1.to_csv('2df_s1_111.csv')
+df_s2.to_csv('2df_s2_222.csv') # used for testing in FATTestModels
+#variables # out for each experiment 
+
+df_s1 = pd.read_csv('2df_s1_111.csv')
+
+s1 = df_s1[[ 
+ 'FATFIRM_HR1_TEXT',
+ 'FATFIRM_HR2_TEXT',
+ 'FATFIRM_HR3_TEXT',
+ 'FATFIRM_HR4_TEXT',
+ 'FATFIRM_HR5_TEXT',
+ 'FATFIRM_HR6_TEXT',
+ 'FATFIRM_FEI_NUMBER',
+ 'PROD_NUM',
+ # 'season_description_true',
+ 'season_description_num',
+ # 'reg_deactivation_reason_num',
+ 'authorizer_flag_num',
+ #'previous_owner_flag_num',
+ # 'prev_cancelled_regnbr',
+ # 'product_cfr_reference_num',
+ 'FATFIRM_HOME_DIST_ID_CODE',
+ 'FATFIRM_DUNS_MATCH_CONF_CODE',
+ 'FATFIRM_STATE_NUM',
+ 'FATFIRM_DOWNGRADED_DATE_TRUE',
+ 'FATFIRM_WORKLOAD_OBL_NUM',
+ 'FATEST_IND_EST_TYPE_NUM',
+ 'FATEST_IND_IND_CODE',
+ 'FATFIRM_EST_SIZE_NUM',
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSN_NUM',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSN_NUM'
+ ]]
+
+
+# s1['FEI_Count'] = 1
+# dff = s1.groupby("FATFIRM_FEI_NUMBER").sum() 
+# dfff = dff.div(dff['FEI_Count'], axis=0)
+ml1 = s1[[  'FATFIRM_HR1_TEXT',
+ 'FATFIRM_HR2_TEXT',
+ 'FATFIRM_HR3_TEXT',
+ 'FATFIRM_HR4_TEXT',
+ 'FATFIRM_HR5_TEXT',
+ 'FATFIRM_HR6_TEXT',
+ 'PROD_NUM',
+ # 'season_description_true',
+ 'season_description_num',
+ # 'reg_deactivation_reason_num',
+ 'authorizer_flag_num',
+ #'previous_owner_flag_num',
+ # 'prev_cancelled_regnbr',
+ # 'product_cfr_reference_num',
+ 'FATFIRM_HOME_DIST_ID_CODE',
+ 'FATFIRM_DUNS_MATCH_CONF_CODE',
+ 'FATFIRM_STATE_NUM',
+ 'FATFIRM_DOWNGRADED_DATE_TRUE',
+ 'FATFIRM_WORKLOAD_OBL_NUM',
+ 'FATEST_IND_EST_TYPE_NUM',
+ 'FATEST_IND_IND_CODE',
+ 'FATFIRM_EST_SIZE_NUM',
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSN_NUM',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSN_NUM'
+ ]]
+
+#ml1.to_csv('ml_124.csv', index=False)
+# ml = pd.read_csv('TESTInspectionOutcomes_HR_split1.csv', low_memory=False)
+#ml = pd.read_csv('RAW_dfsplit1.csv', low_memory=False)
+
+ml1 = ml1.assign(HighRisk1=
+               #  (ml1.FATFIRM_HR1_TEXT == 1).astype(int)|
+               (ml1.FATFIRM_HR4_TEXT == 1).astype(int)|
+               (ml1.FATFIRM_HR2_TEXT == 1).astype(int)
+               |(ml1.FATFIRM_HR3_TEXT == 1).astype(int)
+                 |(ml1.FATFIRM_HR5_TEXT == 1).astype(int)
+             |(ml1.FATFIRM_HR6_TEXT == 1).astype(int))
+
+# ml1 = ml1.assign(HighRisk2=(ml1.FATFIRM_HR4_TEXT == 1).astype(int)
+#                  |(ml1.FATFIRM_HR3_TEXT == 1).astype(int)
+#               # |(ml1.FATFIRM_HR1_TEXT == 1).astype(int)
+#                |(ml1.FATFIRM_HR6_TEXT == 1).astype(int)
+#                |(ml1.FATFIRM_HR2_TEXT == 1).astype(int)
+#               )
+
+# ml starts here 
+ml = ml1[['HighRisk1',
+ 'FATFIRM_HR1_TEXT',
+ 'PROD_NUM',
+ 'season_description_num',
+ # 'season_description_true',
+ 'authorizer_flag_num',
+ 'FATFIRM_HOME_DIST_ID_CODE',
+ 'FATFIRM_DUNS_MATCH_CONF_CODE',
+ 'FATFIRM_STATE_NUM',
+ 'FATEST_IND_IND_CODE',
+ 'FATEST_IND_EST_TYPE_NUM',
+ 'FATFIRM_EST_SIZE_NUM',
+ # 'FATFIRM_DOWNGRADED_DATE_TRUE',
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSN_NUM',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSN_NUM'
+         ]]
+
+ml1.head()
+Xcols = [
+ 'PROD_NUM',
+ 'FATFIRM_HR1_TEXT',
+ 'season_description_num',
+ # 'season_description_true',
+ 'authorizer_flag_num',
+ 'FATFIRM_HOME_DIST_ID_CODE',
+ 'FATFIRM_DUNS_MATCH_CONF_CODE',
+ 'FATFIRM_STATE_NUM',
+ 'FATEST_IND_IND_CODE',
+ 'FATEST_IND_EST_TYPE_NUM',
+ 'FATFIRM_EST_SIZE_NUM',
+ # 'FATFIRM_DOWNGRADED_DATE_TRUE',
+ 'FATFIRM_LST_FSMA_HFF_WRST_DCSN_NUM',
+ 'FATFIRM_PR_FSMA_HFF_WRST_DCSN_NUM'
+]
+
+ycol = ['HighRisk1']
+
+
+def splitXy(Xcols, ycol):
+    #df = getData(file)
+    X = ml.iloc[:, 1:]
+    X = X.values
+    X = pd.DataFrame(X, columns=Xcols)
+    y = ml.iloc[:, 0]
+    y = y.values
+    y = pd.DataFrame(y, columns=ycol)
+    return X, y
+
+
+#create test and train with nonscaled variables
+from sklearn.model_selection import train_test_split
+X, y = splitXy(Xcols, ycol)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.3, random_state = 0)
+
+
+################### scaling failed ###################
+# from sklearn.preprocessing import MinMaxScaler
+# from imblearn.pipeline import Pipeline
+# from imblearn.over_sampling import SMOTE
+# #Imports
+# from imblearn.over_sampling import RandomOverSampler 
+# from imblearn.over_sampling import BorderlineSMOTE
+# from imblearn.over_sampling import SVMSMOTE 
+# from imblearn.over_sampling import KMeansSMOTE
+
+# ### Scale the data before applying SMOTE
+# scaler = MinMaxScaler().fit(X_train.values)
+# X_train_ = scaler.transform(X_train.values)
+# X_test_ = scaler.transform(X_test.values)
+
+# X_train_scaled = pd.DataFrame(X_train_, columns=Xcols)
+# X_test_scaled = pd.DataFrame(X_test_, columns=Xcols)
+################### oversampling failed ###################
+# #Random Oversampling
+# random_os = RandomOverSampler(random_state = 42)
+# X_random, y_random = random_os.fit_resample(X_train_scaled, y_train)
+# #SMOTE
+# smote_os = SMOTE(random_state = 42)
+# X_smote, y_smote = smote_os.fit_resample(X_train_scaled, y_train)
+# #BorderlineSMOTE
+# smote_border = BorderlineSMOTE(random_state = 42, kind = 'borderline-2')
+# X_smoteborder, y_smoteborder = smote_border.fit_resample(X_train_scaled, y_train)
+
+# # #SVM SMOTE
+# # smote_svm = SVMSMOTE(random_state = 42)
+# # X_smotesvm, y_smotesvm = smote_svm.fit_resample(X_train_scaled, y_train)
+# # #K-Means SMOTE
+# # smote_kmeans = KMeansSMOTE(random_state = 42)
+# # X_smotekmeans, y_smotekmeans = smote_kmeans.fit_resample(X_train_scaled, y_train)
+from sklearn.feature_selection import chi2
+scores, pvalues = chi2(X, y)
+print(pvalues)
+print(scores.round(2))
+
+pd.options.display.float_format = '{:.5f}'.format
+
+xdf = pd.DataFrame(X, columns=Xcols)
+print(xdf.columns)
+xd = pd.DataFrame(zip(xdf.columns, np.transpose(pvalues), np.transpose(scores.round(6))), columns=['features', 'p-values', 'scores'])
+xd_sorted = xd.sort_values(by='scores', ascending=False)
+xd_sorted
+
+pickled_models = []
+
+def createModel(func):
+    model = func.fit(X_train, y_train.values.ravel())
+    filename = 'downgradedT{}MR_model_HR.sav'.format(func)
+    pickle.dump(model, open(filename, 'wb'))
+    pickled_models.append(filename)
+    print(filename)
+    return model
+
+def testModel(model, data):
+    y_pred = model.predict(data)
+    return y_pred
+
+def evalModel(name, test, pred):
+    model_name = name
+    score = accuracy_score(test, pred)
+    cm = confusion_matrix(test, pred)
+    return model_name, round(score, 3) * 100, cm
+
+model_results = []
+pr_col = ['pred']
+ml_FEI = df_s1['FATFIRM_FEI_NUMBER'].reset_index(drop=True)
+
+for name in mf.MODEL_NAMES:
+    m_name = mf.get_model(name)
+    model = createModel(m_name)
+    y_ = testModel(model, X_test)
+    preds = pd.DataFrame(y_, columns=pr_col)
+    xdf = pd.DataFrame(X_test, columns=Xcols) 
+    propensity_scores = model.predict_proba(X_test)[:, 1]
+    pcol = ['propensity']
+    p = pd.DataFrame(propensity_scores, columns=pcol)
+    # py_test = y_test.reset_index(drop=True)
+    frames = [y, preds, p]
+    x = pd.concat(frames, axis=1)
+    x.to_csv('propensity_scores{}.csv'.format(model), index=False)
+    results = evalModel(name, y_test, y_)
+    print(results)
+    model_results.append(results)
+    
+-- Machine Learning Code ENDS --
+# p_h = df_124[['prodname', 'HighRisk1']]
+
+# p = p_h.groupby(['prodname']).HighRisk1.sum().sort_values(ascending=False)
+# z = pd.DataFrame(p)
+# z.to_csv('what.csv', index=False)
+# frames = [y_test, preds]
+# x = pd.concat(frames, axis=1)
+# x.shape
+# ml_FEI = ml1['FATFIRM_FEI_NUMBER']
+# ml_FEI = ml1['FATFIRM_FEI_NUMBER']
+
+
+# frames = [FEI, y]
+# x = pd.concat(frames, axis=1)
+# x
+
+# new_df = x[x['HighRisk1'].notnull()]
+# ndf = new_df.reset_index(drop=True)
+
+# frames2 = [ndf, preds]
+# x2 = pd.concat(frames2, axis=1)
+
+# x2
+# x2.to_csv('x2.csv', index=False)
+# x2.groupby(['HighRisk1']).FATFIRM_FEI_NUMBER.nunique()
+# x2.groupby(['pred']).FATFIRM_FEI_NUMBER.nunique()
+# x2.groupby(['HighRisk1', 'pred']).FATFIRM_FEI_NUMBER.nunique()
+# x2.groupby(['HighRisk1']).FATFIRM_FEI_NUMBER.count() / x2.groupby(['HighRisk1']).FATFIRM_FEI_NUMBER.nunique()
+# (x2.groupby(['HighRisk1']).FATFIRM_FEI_NUMBER.nunique() / x2.groupby(['HighRisk1']).FATFIRM_FEI_NUMBER.count()) * 100
+# from sklearn.feature_selection import mutual_info_classif
+# m_name = mf.get_model(name)
+# model = createModel(m_name)
+
+# feat_importance = model.tree_.compute_feature_importances(normalize=False)
+# c = pd.DataFrame(zip(X.columns, feat_importance), columns=['features', 'importance'])
+
+# c
+# #prob scores 
+
+# p_scores = model.predict_proba(X_test)[:, 1]
+# print(p_scores)
+# import matplotlib.pyplot as plt
+# pd.options.display.float_format = '{:.5f}'.format
+# feat_importances = pd.DataFrame(c, index=xdf.columns, columns=['Importance'])
+# feat_importances.sort_values(by='Importance', ascending=False, inplace=True)
+# feat_importances.plot(kind='bar', figsize=(8,6))
